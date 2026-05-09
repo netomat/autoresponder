@@ -1,0 +1,23 @@
+# Sensitive — these effectively contain login credentials
+data/
+signal-data/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local Claude Code permissions (machine-specific)
+.claude/settings.local.json

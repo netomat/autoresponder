@@ -1,0 +1,31 @@
+services:
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal-api
+    restart: unless-stopped
+    environment:
+      MODE: json-rpc
+    volumes:
+      - ./signal-data:/home/.local/share/signal-cli
+    ports:
+      # Only needed during initial QR linking. Remove this mapping after Signal is linked;
+      # the autoresponder container reaches signal-api over the internal Docker network.
+      - "8080:8080"
+
+  autoresponder:
+    build: .
+    container_name: autoresponder
+    restart: unless-stopped
+    depends_on:
+      - signal-api
+    environment:
+      TG_API_ID: "${TG_API_ID}"
+      TG_API_HASH: "${TG_API_HASH}"
+      CONTROL_BOT_TOKEN: "${CONTROL_BOT_TOKEN}"
+      OWNER_USER_ID: "${OWNER_USER_ID}"
+      SIGNAL_API_URL: "${SIGNAL_API_URL:-http://signal-api:8080}"
+      SIGNAL_PHONE_NUMBER: "${SIGNAL_PHONE_NUMBER:-}"
+      TIMEZONE: "${TIMEZONE:-Europe/Berlin}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      - ./data:/data
