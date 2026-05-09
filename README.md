@@ -78,6 +78,7 @@ There are two phases:
 Your helper will:
 
 1. Install **Docker Desktop** (Mac/Windows) or **Docker Engine** (Linux) on your computer. Free.
+   - On Ubuntu: `sudo apt install docker.io docker-compose-plugin make` then `sudo usermod -aG docker $USER` and log out/in once.
 2. Copy this whole project folder (the one containing this README) somewhere on your computer.
 3. In a Terminal/PowerShell, navigate into the folder.
 4. Copy `.env.example` to `.env` and fill in the values you collected in Part 1:
@@ -226,14 +227,98 @@ For all of these: the fix is a 5–15 minute remote-support session with your te
 
 ## For developers / your tech helper
 
-The end-user docs above cover the "happy path". If you're the one implementing or maintaining this, the technical docs are:
+The end-user docs above cover the "happy path" install + daily use. The rest of this section is the maintainer's quick-start: getting it running on a Linux laptop, smoke-testing it, and iterating before the NAS deploy.
+
+### Tech stack
+
+Python 3.12 (asyncio, Telethon, python-telegram-bot v21, aiohttp), Docker + Compose, [`bbernhard/signal-cli-rest-api`](https://github.com/bbernhard/signal-cli-rest-api). Common dev tasks are in the `Makefile` (`make help`).
+
+### Reference docs
 
 - [`SPEC.md`](SPEC.md) — full architecture, component contracts, acceptance criteria.
 - [`TESTING.md`](TESTING.md) — phased test plan (Telegram-only locally, then Signal, then soak, then NAS).
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — detailed QNAP deployment + handoff checklist for the non-technical user.
 - [`HOW_TO_USE_WITH_CLAUDE_CODE.md`](HOW_TO_USE_WITH_CLAUDE_CODE.md) — original prompt-driven build flow.
 
-Tech stack: Python 3.12 (asyncio, Telethon, python-telegram-bot v21, aiohttp), Docker, [`bbernhard/signal-cli-rest-api`](https://github.com/bbernhard/signal-cli-rest-api). Common dev tasks are in the `Makefile` (`make help`).
+### Local quick-start (Ubuntu laptop, Telegram only)
+
+This is the path that maps to **`TESTING.md` Phase 1** — get the stack running locally before adding Signal or moving to the NAS.
+
+```bash
+# 1. Prereqs (one-time)
+sudo apt install docker.io docker-compose-plugin make
+sudo usermod -aG docker $USER     # log out/in once after this
+
+# 2. Configure
+cp .env.example .env
+$EDITOR .env       # paste TG_API_ID/HASH/CONTROL_BOT_TOKEN/OWNER_USER_ID
+                   # leave SIGNAL_PHONE_NUMBER blank for Phase 1
+
+# 3. First-run Telegram login (writes data/userbot.session)
+make tg-login
+#   → enter phone in +49… form
+#   → enter the login code that arrives inside the Telegram app
+#   → 2FA password if you have one
+
+# 4. Build & start
+make build
+make up
+make logs        # follow both containers
+```
+
+Expected log lines:
+
+```
+userbot started as @yourname (id=…)
+control bot started
+Signal disabled (SIGNAL_PHONE_NUMBER unset)
+```
+
+### Smoke test
+
+1. On your phone, open Telegram, search for the bot username you created with `@BotFather`, send `/start` → expect the inline keyboard.
+2. Tap **🟢 On**.
+3. From a second Telegram account, DM your personal account → expect exactly one auto-reply.
+4. Send 4 more DMs in quick succession → expect zero further replies (cooldown).
+5. Tap **📊 Status** in the control bot → confirm the displayed timezone, current local time, and "active right now" all match reality.
+
+If all five pass, walk through `TESTING.md` Phase 1 (T1–T14). For T3/T4 you'll want to lower `cooldown_hours` temporarily — easiest is to edit `data/state.json` directly while the container is stopped, or add a `/setcooldown` command (out of scope for v1).
+
+### Add Signal (Phase 2)
+
+```bash
+$EDITOR .env             # set SIGNAL_PHONE_NUMBER=+49…
+make signal-link         # brings up signal-api alone
+make signal-qr           # prints the QR-link URL
+                         # → open in browser, scan from Signal → Linked Devices → +
+make signal-accounts     # should list your number
+make restart             # bounce the autoresponder so it picks up the new env
+make logs                # expect "Signal listener connected"
+```
+
+Then repeat the smoke test using a Signal DM instead of a Telegram one, and run TESTING.md Phase 2 (S1–S4).
+
+### Useful make targets
+
+| Command | What it does |
+|---|---|
+| `make help` | List all targets |
+| `make build` | Build the autoresponder image |
+| `make up` | Start both containers detached |
+| `make down` | Stop and remove containers (volumes preserved) |
+| `make restart` | Bounce both containers (after `.env` or code changes) |
+| `make logs` | Follow logs from both containers |
+| `make ps` | Container status |
+| `make tg-login` | First-run interactive Telegram login |
+| `make signal-link` | Bring up `signal-api` alone for QR linking |
+| `make signal-qr` | Print the QR-link URL |
+| `make signal-accounts` | Show linked Signal accounts |
+| `make shell` | Open a shell in the autoresponder container |
+| `make clean` | Remove the built image (does not touch `data/`) |
+
+### Iteration loop
+
+Code change in `app/` → `make build && make restart && make logs`. The mounted `data/` volume preserves session + `state.json` across rebuilds, so you don't have to re-login each time.
 
 ### Security notes
 
