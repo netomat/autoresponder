@@ -19,10 +19,10 @@ services:
     depends_on:
       - signal-api
     environment:
-      TG_API_ID: "${TG_API_ID}"
-      TG_API_HASH: "${TG_API_HASH}"
-      CONTROL_BOT_TOKEN: "${CONTROL_BOT_TOKEN}"
-      OWNER_USER_ID: "${OWNER_USER_ID}"
+      TG_USER_BOT_API_ID: "${TG_USER_BOT_API_ID}"
+      TG_USER_BOT_API_HASH: "${TG_USER_BOT_API_HASH}"
+      TG_CONTROL_BOT_TOKEN: "${TG_CONTROL_BOT_TOKEN}"
+      TG_OWNER_USER_ID: "${TG_OWNER_USER_ID}"
       SIGNAL_API_URL: "${SIGNAL_API_URL:-http://signal-api:8080}"
       SIGNAL_PHONE_NUMBER: "${SIGNAL_PHONE_NUMBER:-}"
       TIMEZONE: "${TIMEZONE:-Europe/Berlin}"

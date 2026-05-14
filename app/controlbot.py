@@ -1,7 +1,7 @@
 """Telegram control bot — the friend's only interface.
 
 Exposes both slash commands and an inline-keyboard menu. Every handler is
-gated by the OWNER_USER_ID check, so messages from anyone else are
+gated by the TG_OWNER_USER_ID check, so messages from anyone else are
 silently ignored. Also runs the daily heartbeat task and provides the
 delivery callback used by `notify` for error pushes from the listeners.
 """
@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -39,7 +40,7 @@ AWAIT_UNTIL = "awaiting_until"
 
 
 def _owner_only(handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]):
-    """Decorator: drop messages from anyone except OWNER_USER_ID."""
+    """Decorator: drop messages from anyone except TG_OWNER_USER_ID."""
 
     @wraps(handler)
     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -482,6 +483,14 @@ async def run(cfg: Config) -> None:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    async def _on_error(_update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        exc = ctx.error
+        if isinstance(exc, BadRequest) and "Message is not modified" in str(exc):
+            return  # benign: user tapped the same button twice
+        log.exception("unhandled error in control bot", exc_info=exc)
+
+    app.add_error_handler(_on_error)
 
     async def _deliver(message: str) -> None:
         await app.bot.send_message(chat_id=cfg.owner_user_id, text=message)

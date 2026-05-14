@@ -1,8 +1,8 @@
 """First-run helper that creates /data/userbot.session interactively.
 
-Run via `make tg-login`. It reads TG_API_ID / TG_API_HASH from the env,
-prompts for the owner's phone number and the Telegram login code, and
-writes the session file the userbot uses at runtime."""
+Run via `make tg-login`. It reads TG_USER_BOT_API_ID / TG_USER_BOT_API_HASH
+from the env, prompts for the owner's phone number and the Telegram login
+code, and writes the session file the userbot uses at runtime."""
 
 from __future__ import annotations
 
@@ -15,10 +15,13 @@ from .userbot import SESSION_PATH
 
 
 def main() -> None:
-    api_id = os.environ.get("TG_API_ID")
-    api_hash = os.environ.get("TG_API_HASH")
+    api_id = os.environ.get("TG_USER_BOT_API_ID")
+    api_hash = os.environ.get("TG_USER_BOT_API_HASH")
     if not api_id or not api_hash:
-        print("FATAL: TG_API_ID and TG_API_HASH must be set in .env", file=sys.stderr)
+        print(
+            "FATAL: TG_USER_BOT_API_ID and TG_USER_BOT_API_HASH must be set in .env",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     client = TelegramClient(SESSION_PATH, int(api_id), api_hash)

@@ -29,7 +29,12 @@ class Config:
         return bool(self.signal_phone_number)
 
 
-_REQUIRED = ("TG_API_ID", "TG_API_HASH", "CONTROL_BOT_TOKEN", "OWNER_USER_ID")
+_REQUIRED = (
+    "TG_USER_BOT_API_ID",
+    "TG_USER_BOT_API_HASH",
+    "TG_CONTROL_BOT_TOKEN",
+    "TG_OWNER_USER_ID",
+)
 
 
 def _fatal(msg: str) -> "None":
@@ -44,13 +49,13 @@ def load() -> Config:
         _fatal(f"missing required env vars: {', '.join(missing)}")
 
     try:
-        tg_api_id = int(os.environ["TG_API_ID"])
+        tg_api_id = int(os.environ["TG_USER_BOT_API_ID"])
     except ValueError:
-        _fatal("TG_API_ID must be an integer")
+        _fatal("TG_USER_BOT_API_ID must be an integer")
     try:
-        owner_user_id = int(os.environ["OWNER_USER_ID"])
+        owner_user_id = int(os.environ["TG_OWNER_USER_ID"])
     except ValueError:
-        _fatal("OWNER_USER_ID must be an integer (Telegram user id)")
+        _fatal("TG_OWNER_USER_ID must be an integer (Telegram user id)")
 
     timezone = os.environ.get("TIMEZONE", "Europe/Berlin")
     try:
@@ -68,8 +73,8 @@ def load() -> Config:
 
     return Config(
         tg_api_id=tg_api_id,
-        tg_api_hash=os.environ["TG_API_HASH"],
-        control_bot_token=os.environ["CONTROL_BOT_TOKEN"],
+        tg_api_hash=os.environ["TG_USER_BOT_API_HASH"],
+        control_bot_token=os.environ["TG_CONTROL_BOT_TOKEN"],
         owner_user_id=owner_user_id,
         signal_api_url=os.environ.get("SIGNAL_API_URL", "http://signal-api:8080"),
         signal_phone_number=signal_phone,

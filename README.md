@@ -53,11 +53,13 @@ These let the autoresponder read your incoming messages.
 
 ### Step 1.3: Find your own Telegram user ID
 
-The bot needs to know that *you* are its owner, so it ignores messages from anyone else.
+The control bot needs to know that *you* are its owner, so it ignores messages from anyone else. Your Telegram user ID is a number (around 9–10 digits), distinct from your `@handle`.
 
 1. In Telegram, search for **`@userinfobot`** and start a chat.
-2. Send any message (e.g. "hi").
-3. It replies with your user ID — a number like `123456789`. **Copy it.**
+2. Tap **Start** (or send `/start`).
+3. It replies with several lines — look for the line **`Id: 123456789`**. Copy *only* the number (no `Id:` prefix, no quotes).
+
+That number goes into `TG_OWNER_USER_ID` in `.env`. It must be plain digits, e.g. `TG_OWNER_USER_ID=123456789` — not `"123456789"`, not `Id: 123456789`.
 
 ### Step 1.4 (optional): Note your Signal phone number
 
@@ -84,10 +86,10 @@ Your helper will:
 4. Copy `.env.example` to `.env` and fill in the values you collected in Part 1:
 
    ```
-   TG_API_ID=12345
-   TG_API_HASH=abc123def456...
-   CONTROL_BOT_TOKEN=8123456789:AAH...xyz
-   OWNER_USER_ID=123456789
+   TG_USER_BOT_API_ID=12345
+   TG_USER_BOT_API_HASH=abc123def456...
+   TG_CONTROL_BOT_TOKEN=8123456789:AAH...xyz
+   TG_OWNER_USER_ID=123456789
    SIGNAL_PHONE_NUMBER=+491701234567
    TIMEZONE=Europe/Berlin
    ```
@@ -118,6 +120,25 @@ Your helper will:
    ```
 
    You should see your phone number listed.
+
+8. **Start everything and open your control bot.** This is the most important step — without it, the bot literally cannot message you (Telegram forbids bots from messaging users who never started a chat first).
+
+   ```bash
+   make up
+   make logs
+   ```
+
+   Logs should show `userbot started as @you (id=…)`, `control bot started`, and (if Signal is on) `Signal listener connected`. Press `Ctrl+C` to stop tailing.
+
+   Then on your phone:
+
+   - In Telegram, tap the **search box** (top of the chat list).
+   - Type the **@username** of the bot you created in Step 1.2 (e.g. `@my_autoresponder_bot`). **Do not search for `@BotFather` — that's the bot factory, not your bot.**
+   - If you can't remember the username: open `@BotFather` → send `/mybots` → tap your bot → tap **Open Bot**.
+   - In your bot's chat, tap the blue **START** button (or send `/start`).
+   - You should see a welcome message with an inline keyboard (On / Off / Schedule / Status / Message / Platforms).
+
+   If the welcome message doesn't appear, `TG_CONTROL_BOT_TOKEN` or `TG_OWNER_USER_ID` is wrong in `.env`. Stop here and double-check both. The owner ID must be plain digits (no quotes, no `Id:` prefix).
 
 ### Phase B — Move it to the NAS
 
@@ -170,7 +191,13 @@ Two folders now exist that contain login credentials for your accounts: `data/` 
 
 ## Part 3 — Daily use (this is the easy part)
 
-On your phone, open Telegram and search for the **bot username** you created in step 1.2 (e.g. `@my_autoresponder_bot`). Open the chat and send `/start`.
+On your phone, open Telegram and find the **bot username** you created in Step 1.2 (e.g. `@my_autoresponder_bot`):
+
+- Tap the search box at the top of the chat list and type the @username.
+- Or, if you forgot the username: open **@BotFather** → send `/mybots` → tap your bot → tap **Open Bot**.
+- **Do not confuse this with `@BotFather`.** BotFather is the *factory* that created your bot. Your bot is a *different* chat.
+
+In your bot's chat, tap the blue **START** button at the bottom (or send `/start`). This is a one-time handshake that Telegram requires before any bot can message you. After that the bot can DM you (daily heartbeat, error alerts, etc.).
 
 You'll see a menu with buttons:
 
@@ -251,7 +278,7 @@ sudo usermod -aG docker $USER     # log out/in once after this
 
 # 2. Configure
 cp .env.example .env
-$EDITOR .env       # paste TG_API_ID/HASH/CONTROL_BOT_TOKEN/OWNER_USER_ID
+$EDITOR .env       # paste TG_USER_BOT_API_ID/HASH, TG_CONTROL_BOT_TOKEN, TG_OWNER_USER_ID
                    # leave SIGNAL_PHONE_NUMBER blank for Phase 1
 
 # 3. First-run Telegram login (writes data/userbot.session)
