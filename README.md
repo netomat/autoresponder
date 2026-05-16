@@ -27,16 +27,67 @@ A self-hosted "I'm away" auto-replier for your **personal** Telegram and Signal 
 
 ## Where credentials live
 
-Everything that identifies you to Telegram and Signal lives in **one folder**:
+Everything that identifies you to Telegram and Signal lives in **one folder**, `environment/`:
 
 ```
 environment/
-├── .env                  ← TG API keys, bot token, your TG user id, Signal number
+├── .env                  ← TG API keys, bot token, your TG user id, Signal number  (you create this)
 ├── data/
-│   ├── userbot.session   ← Telegram session (logged-in-as-you state)
-│   └── state.json        ← runtime settings (on/off, schedule, cooldown timestamps)
-└── signal-data/          ← Signal linked-device state (encrypted)
+│   ├── userbot.session   ← Telegram session (logged-in-as-you state)               (auto-created)
+│   └── state.json        ← runtime settings (on/off, schedule, cooldown)           (auto-created)
+└── signal-data/          ← Signal linked-device state (encrypted)                  (auto-created)
 ```
+
+**What `./install.sh` and the containers create for you:**
+
+- `environment/` (the folder itself) — created on first run of `./install.sh` if missing.
+- `environment/.env` — copied from `.env.example` by `./install.sh` if missing. The installer then exits and tells you to edit it before re-running. **You fill in the values.**
+- `environment/data/` and `environment/signal-data/` — created automatically when the containers first start. `userbot.session` is written by `make tg-login` (step 4 of the installer), `state.json` by the autoresponder on first start, `signal-data/*` by `signal-api` when you scan the QR code.
+
+You don't need to `mkdir` anything by hand. The only file you have to create yourself is the *contents* of `environment/.env` — and the installer prompts for that too.
+
+**What `.env.example` looks like** (it's checked into git as a template — all values blank):
+
+```bash
+# Telegram userbot — logs in as YOU (required)
+# Get these from https://my.telegram.org → "API development tools"
+TG_USER_BOT_API_ID=
+TG_USER_BOT_API_HASH=
+
+# Telegram control bot (required)
+# Create the bot via @BotFather, then ask @userinfobot for TG_OWNER_USER_ID
+TG_CONTROL_BOT_TOKEN=
+TG_OWNER_USER_ID=
+# Optional: the bot's @handle (without the @), for display in /start. Not required.
+TG_CONTROL_BOT_NAME=
+
+# Signal (optional — leave SIGNAL_PHONE_NUMBER blank to run Telegram-only)
+SIGNAL_API_URL=http://signal-api:8080
+SIGNAL_PHONE_NUMBER=
+
+# General
+TIMEZONE=Europe/Berlin
+LOG_LEVEL=INFO
+```
+
+And what it looks like once filled in (your real `environment/.env`):
+
+```bash
+TG_USER_BOT_API_ID=12345                              # plain digits, from my.telegram.org
+TG_USER_BOT_API_HASH=0123456789abcdef0123456789abcdef # 32-char hex, from my.telegram.org
+TG_CONTROL_BOT_TOKEN=8123456789:AAHxYzExampleBotToken # from @BotFather, contains a colon
+TG_OWNER_USER_ID=123456789                            # plain digits, from @userinfobot
+TG_CONTROL_BOT_NAME=my_autoresponder_bot              # optional, no leading @
+SIGNAL_API_URL=http://signal-api:8080                 # leave as-is; internal docker DNS
+SIGNAL_PHONE_NUMBER=+491701234567                     # E.164 format with +, or blank
+TIMEZONE=Europe/Berlin                                # any valid IANA zone
+LOG_LEVEL=INFO                                        # DEBUG | INFO | WARNING | ERROR
+```
+
+> **Important formatting rules:**
+> - **No quotes around any value.** `TG_OWNER_USER_ID="123"` will fail validation; `TG_OWNER_USER_ID=123` is correct.
+> - `TG_USER_BOT_API_ID` and `TG_OWNER_USER_ID` must be **plain digits only** (no `Id:` prefix, no spaces).
+> - `SIGNAL_PHONE_NUMBER` must start with `+` and contain only digits afterwards (E.164). Leave it entirely blank to skip Signal.
 
 The whole `environment/` folder is gitignored, so:
 
@@ -106,25 +157,27 @@ cd autoresponder
 
 ### Step 2.2: Fill in `environment/.env`
 
+You have two equivalent ways to do this. **Either**:
+
+**(a) Let the installer create the file for you** — easier the first time:
+
 ```bash
-mkdir -p environment
-cp .env.example environment/.env
+./install.sh           # exits with "Edit environment/.env, then re-run"
 $EDITOR environment/.env
 ```
 
-Paste the values you collected in Part 1:
+The installer notices `environment/.env` is missing, copies `.env.example` to `environment/.env`, `chmod 600`s it, prints "Edit environment/.env with your credentials, then re-run ./install.sh", and exits. Fill it in and run `./install.sh` again.
 
-```
-TG_USER_BOT_API_ID=12345
-TG_USER_BOT_API_HASH=abc123def456...
-TG_CONTROL_BOT_TOKEN=8123456789:AAH...xyz
-TG_OWNER_USER_ID=123456789
-TG_CONTROL_BOT_NAME=my_autoresponder_bot   # optional — just for nicer hints
-SIGNAL_PHONE_NUMBER=+491701234567          # leave blank for Telegram-only
-TIMEZONE=Europe/Berlin
+**(b) Or create it manually** before the first install run:
+
+```bash
+mkdir -p environment
+cp .env.example environment/.env
+chmod 600 environment/.env
+$EDITOR environment/.env
 ```
 
-> **No quotes around any value.** `TG_OWNER_USER_ID` and `TG_USER_BOT_API_ID` must be **plain digits**.
+Either way, paste the values you collected in Part 1. See the [annotated env example above](#where-credentials-live) for the full list of variables and the formatting rules.
 
 ### Step 2.3: Run the installer
 
