@@ -1,6 +1,9 @@
-# Sensitive — these effectively contain login credentials
-data/
-signal-data/
+# Credentials and persistent state — never commit.
+# Contains: environment/.env, environment/data/userbot.session,
+# environment/data/state.json, environment/signal-data/ (Signal link).
+environment/
+
+# Safety net in case someone creates a .env at project root by mistake
 .env
 
 # Python

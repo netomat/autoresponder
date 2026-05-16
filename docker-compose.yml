@@ -6,18 +6,27 @@ services:
     environment:
       MODE: json-rpc
     volumes:
-      - ./signal-data:/home/.local/share/signal-cli
+      - ./environment/signal-data:/home/.local/share/signal-cli
     ports:
-      # Only needed during initial QR linking. Remove this mapping after Signal is linked;
-      # the autoresponder container reaches signal-api over the internal Docker network.
-      - "8080:8080"
+      # Bind to 127.0.0.1 only — signal-api has no auth, so this prevents
+      # anyone on the LAN from driving your Signal account. The QR-link flow
+      # (make signal-qr-tty, make signal-accounts) works because it runs on
+      # the host or shares signal-api's network namespace.
+      # Remove this mapping entirely after Signal is linked if you want the
+      # API unreachable from the host too; the autoresponder container talks
+      # to signal-api over the internal Docker network regardless.
+      - "127.0.0.1:8080:8080"
 
   autoresponder:
     build: .
     container_name: autoresponder
     restart: unless-stopped
     depends_on:
-      - signal-api
+      signal-api:
+        # Wait for signal-api's healthcheck before starting autoresponder.
+        # Otherwise the Signal WS connect races against signal-cli daemon
+        # startup, fires a benign disconnect notification, then reconnects.
+        condition: service_healthy
     environment:
       TG_USER_BOT_API_ID: "${TG_USER_BOT_API_ID}"
       TG_USER_BOT_API_HASH: "${TG_USER_BOT_API_HASH}"
@@ -28,4 +37,4 @@ services:
       TIMEZONE: "${TIMEZONE:-Europe/Berlin}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     volumes:
-      - ./data:/data
+      - ./environment/data:/data

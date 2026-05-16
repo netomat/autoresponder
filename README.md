@@ -4,6 +4,8 @@ A self-hosted "I'm away" auto-replier for your **personal** Telegram and Signal 
 
 > **You are not a developer? That's fine.** This guide walks you through it step by step. You will need ~45 minutes the first time, and a friend with some technical skill if you get stuck. After that you only ever use a Telegram bot — no terminal, no SSH, nothing scary.
 
+> 🤖 **Built with [Claude](https://www.anthropic.com/claude)** (Anthropic's AI assistant), guided end-to-end by [Marcel Reuter](https://github.com/) via [Claude Code](https://docs.claude.com/en/docs/claude-code). The conversation logs that produced this codebase are part of the history of the project.
+
 ---
 
 ## What it does
@@ -15,15 +17,36 @@ A self-hosted "I'm away" auto-replier for your **personal** Telegram and Signal 
 
 ## What you need
 
-1. **A QNAP NAS** with the **Container Station** app installed. (Free in the QNAP App Center.)
-2. **A computer (laptop or desktop)** to do the one-time setup. Mac, Windows, or Linux all work.
+1. **A QNAP NAS** with the **Container Station** app installed (free in the QNAP App Center) — *or* any Linux box with Docker.
+2. **SSH access** to that machine, and `git` + `docker` + `docker compose` + `make` installed there.
 3. **Your phone** with both Telegram and Signal installed and working.
 4. **About 45 minutes** the first time.
 5. **Optionally a friend who knows Linux** for the parts that touch the NAS terminal — but the steps below are copy-pasteable.
 
 ---
 
-## Part 1 — Create your own Telegram control bot
+## Where credentials live
+
+Everything that identifies you to Telegram and Signal lives in **one folder**:
+
+```
+environment/
+├── .env                  ← TG API keys, bot token, your TG user id, Signal number
+├── data/
+│   ├── userbot.session   ← Telegram session (logged-in-as-you state)
+│   └── state.json        ← runtime settings (on/off, schedule, cooldown timestamps)
+└── signal-data/          ← Signal linked-device state (encrypted)
+```
+
+The whole `environment/` folder is gitignored, so:
+
+- A fresh `git clone` starts empty — no credentials in the repo.
+- Backing up the host means backing up `environment/`.
+- Moving to a new host means copying `environment/` over (or redoing the QR scan + Telegram login on the new host).
+
+---
+
+## Part 1 — Collect your Telegram credentials
 
 This bot is the remote control you'll use on your phone. It only listens to *you*.
 
@@ -59,7 +82,7 @@ The control bot needs to know that *you* are its owner, so it ignores messages f
 2. Tap **Start** (or send `/start`).
 3. It replies with several lines — look for the line **`Id: 123456789`**. Copy *only* the number (no `Id:` prefix, no quotes).
 
-That number goes into `TG_OWNER_USER_ID` in `.env`. It must be plain digits, e.g. `TG_OWNER_USER_ID=123456789` — not `"123456789"`, not `Id: 123456789`.
+That number goes into `TG_OWNER_USER_ID` in `environment/.env`. It must be plain digits, e.g. `TG_OWNER_USER_ID=123456789` — not `"123456789"`, not `Id: 123456789`.
 
 ### Step 1.4 (optional): Note your Signal phone number
 
@@ -67,125 +90,79 @@ If you want auto-replies on Signal too, write down your Signal phone number in *
 
 ---
 
-## Part 2 — Install on your QNAP NAS
+## Part 2 — Install (one shot via `./install.sh`)
 
-There are two phases:
-- **Phase A** is done once on your own computer (your laptop or desktop) so we can log into Telegram and Signal interactively. The QNAP cannot do this part itself because it needs a typed-in code from your phone.
-- **Phase B** copies everything over to the NAS where it runs forever.
+You'll do this **directly on the machine that will run the autoresponder** — typically your QNAP NAS via SSH. The installer is interactive (it asks you to type your Telegram login code into the terminal, and to scan a QR code with your phone for Signal), so you need a live terminal session to that machine.
 
-> **You will need help from a tech-savvy friend for Phase A and for the very first time on the NAS.** After that you don't need them again unless something breaks.
+### Step 2.1: Clone the repository on the host
 
-### Phase A — One-time login on your computer
+SSH into the host, then:
 
-Your helper will:
+```bash
+cd /share/Container        # on QNAP. On a regular Linux box, pick your own path.
+git clone <repo-url> autoresponder
+cd autoresponder
+```
 
-1. Install **Docker Desktop** (Mac/Windows) or **Docker Engine** (Linux) on your computer. Free.
-   - On Ubuntu: `sudo apt install docker.io docker-compose-plugin make` then `sudo usermod -aG docker $USER` and log out/in once.
-2. Copy this whole project folder (the one containing this README) somewhere on your computer.
-3. In a Terminal/PowerShell, navigate into the folder.
-4. Copy `.env.example` to `.env` and fill in the values you collected in Part 1:
+### Step 2.2: Fill in `environment/.env`
 
-   ```
-   TG_USER_BOT_API_ID=12345
-   TG_USER_BOT_API_HASH=abc123def456...
-   TG_CONTROL_BOT_TOKEN=8123456789:AAH...xyz
-   TG_OWNER_USER_ID=123456789
-   SIGNAL_PHONE_NUMBER=+491701234567
-   TIMEZONE=Europe/Berlin
-   ```
+```bash
+mkdir -p environment
+cp .env.example environment/.env
+$EDITOR environment/.env
+```
 
-   Leave `SIGNAL_PHONE_NUMBER` blank if you only want Telegram.
+Paste the values you collected in Part 1:
 
-5. Run the Telegram login (this writes a session file that the autoresponder will use to read your DMs):
+```
+TG_USER_BOT_API_ID=12345
+TG_USER_BOT_API_HASH=abc123def456...
+TG_CONTROL_BOT_TOKEN=8123456789:AAH...xyz
+TG_OWNER_USER_ID=123456789
+TG_CONTROL_BOT_NAME=my_autoresponder_bot   # optional — just for nicer hints
+SIGNAL_PHONE_NUMBER=+491701234567          # leave blank for Telegram-only
+TIMEZONE=Europe/Berlin
+```
 
-   ```bash
-   make tg-login
-   ```
+> **No quotes around any value.** `TG_OWNER_USER_ID` and `TG_USER_BOT_API_ID` must be **plain digits**.
 
-   It asks for your phone number — type it in international format (`+49...`). Telegram sends a login code *inside the Telegram app* (not as SMS) — read it and type it in. If you have 2FA enabled, type your 2FA password too. Done.
+### Step 2.3: Run the installer
 
-6. **(Signal only)** Link the Signal device:
+```bash
+./install.sh
+```
 
-   ```bash
-   make signal-link
-   make signal-qr
-   ```
+This script is idempotent — you can re-run it if something goes wrong. It:
 
-   `make signal-qr` prints a URL. Open it in your browser — a QR code appears. On your phone: open Signal → Settings → Linked Devices → tap the **+** → scan the QR code. The QNAP-side Signal becomes a "linked device" of your phone, so it sees the same messages.
+1. Checks Docker and Docker Compose are installed and reachable.
+2. Validates `environment/.env` (required vars are set, numeric fields are digits, Signal number is E.164).
+3. Builds the autoresponder image.
+4. **Telegram login** — prompts for your phone number, then asks for the login code that arrives *inside the Telegram app*. (Skipped if `environment/data/userbot.session` already exists.)
+5. **Signal link** (if `SIGNAL_PHONE_NUMBER` is set) — renders a QR code directly in your terminal. Scan it from your phone: **Signal → Settings → Linked Devices → +**. (Skipped if your number is already linked.)
+6. Starts both containers.
 
-7. Verify Signal worked:
+### Step 2.4: Tap **START** in your control bot
 
-   ```bash
-   make signal-accounts
-   ```
+This is the most important step — without it, **the bot literally cannot message you** (Telegram forbids bots from messaging users who never started a chat first).
 
-   You should see your phone number listed.
+On your phone:
 
-8. **Start everything and open your control bot.** This is the most important step — without it, the bot literally cannot message you (Telegram forbids bots from messaging users who never started a chat first).
+- In Telegram, tap the **search box** (top of the chat list).
+- Type the **@username** of the bot you created in Step 1.2 (e.g. `@my_autoresponder_bot`). **Do not search for `@BotFather` — that's the bot factory, not your bot.**
+- If you forgot the username: open `@BotFather` → send `/mybots` → tap your bot → tap **Open Bot**.
+- In your bot's chat, tap the blue **START** button (or send `/start`).
+- You should see a welcome message with an inline keyboard (On / Off / Schedule / Status / Message / Platforms).
 
-   ```bash
-   make up
-   make logs
-   ```
+If the welcome message doesn't appear, `TG_CONTROL_BOT_TOKEN` or `TG_OWNER_USER_ID` is wrong in `environment/.env`. Stop here and double-check both. The owner ID must be plain digits (no quotes, no `Id:` prefix).
 
-   Logs should show `userbot started as @you (id=…)`, `control bot started`, and (if Signal is on) `Signal listener connected`. Press `Ctrl+C` to stop tailing.
+### Step 2.5 (optional): Tighten the firewall
 
-   Then on your phone:
+The Signal QR-link step needs port 8080 exposed on the host. Once Signal is linked, you can stop publishing that port:
 
-   - In Telegram, tap the **search box** (top of the chat list).
-   - Type the **@username** of the bot you created in Step 1.2 (e.g. `@my_autoresponder_bot`). **Do not search for `@BotFather` — that's the bot factory, not your bot.**
-   - If you can't remember the username: open `@BotFather` → send `/mybots` → tap your bot → tap **Open Bot**.
-   - In your bot's chat, tap the blue **START** button (or send `/start`).
-   - You should see a welcome message with an inline keyboard (On / Off / Schedule / Status / Message / Platforms).
+- Edit `docker-compose.yml`, comment out the `8080:8080` line under `signal-api`.
+- `make restart`.
 
-   If the welcome message doesn't appear, `TG_CONTROL_BOT_TOKEN` or `TG_OWNER_USER_ID` is wrong in `.env`. Stop here and double-check both. The owner ID must be plain digits (no quotes, no `Id:` prefix).
-
-### Phase B — Move it to the NAS
-
-Two folders now exist that contain login credentials for your accounts: `data/` (Telegram) and `signal-data/` (Signal). **Treat these like passwords.** Don't email them, don't post them anywhere.
-
-1. **Copy the folder to the NAS.** Easiest is over the local network, e.g.:
-
-   ```bash
-   scp -r autoresponder/ admin@yournas.local:/share/Container/
-   ```
-
-   (Replace `admin` and `yournas.local` with your QNAP login and address.)
-
-2. **SSH into the NAS** and lock down permissions on the credential folders:
-
-   ```bash
-   ssh admin@yournas.local
-   cd /share/Container/autoresponder
-   chmod 600 data/userbot.session
-   chmod -R 700 data signal-data
-   ```
-
-3. **Start it via Container Station:**
-   - Open the QNAP web UI → **Container Station**.
-   - Click **Applications** → **Create**.
-   - Choose **Create Application** and paste the contents of `docker-compose.yml`.
-   - Container Station detects the `${VAR}` placeholders and asks you to fill them — paste the same values you put in `.env`.
-   - Click **Deploy**.
-
-   *Or, from the SSH terminal:*
-
-   ```bash
-   docker compose up -d
-   ```
-
-4. **Verify it's running.** In Container Station you should see two containers:
-   - `autoresponder` — green/running
-   - `signal-api` — green/running
-
-   Click each to see the logs. You should see lines like:
-   - `userbot started as @yourname (id=…)`
-   - `Signal listener connected`
-   - `control bot started`
-
-5. **Set them to auto-restart** (Container Station → container → Edit → Restart policy → "unless-stopped"). This way they survive a NAS reboot.
-
-6. **Optional but recommended:** remove the public port mapping from `signal-api` once the QR scan is done. In Container Station, edit the `signal-api` container and remove the `8080:8080` line. The autoresponder still talks to it over the internal Docker network.
+The autoresponder still talks to `signal-api` over the internal Docker network, so this only closes off external access.
 
 ---
 
@@ -235,12 +212,11 @@ Once a day at midnight, the bot DMs you a "✅ Autoresponder running" message wi
 
 | Symptom | What to do |
 |---|---|
-| You stop seeing the daily "running" message | The autoresponder is probably down. Open Container Station → restart both containers. If that doesn't fix it, call your tech helper. |
+| You stop seeing the daily "running" message | The autoresponder is probably down. SSH in and run `make ps` / `make logs`. Try `make restart`. If that doesn't fix it, call your tech helper. |
 | The bot replies to commands but doesn't auto-reply to DMs | Check `/status`. Probably it's set to OFF, or the schedule says "not active right now". |
 | You see an `⚠️` error message from the bot | Note what it says and call your tech helper. Most often it's "Signal listener disconnected" — usually self-recovers. |
-| You changed your phone number | Both Telegram and Signal need to be re-linked from scratch. Tech-helper job — schedule a session. |
-| You got a new phone | Same — full re-link. |
-| Signal stops auto-replying after a while | Signal sometimes drops linked devices for security reasons. Re-link via the QR-code procedure in Phase A step 6. |
+| You changed your phone number | Both Telegram and Signal need to be re-linked from scratch. Delete `environment/data/userbot.session` and `environment/signal-data/`, then re-run `./install.sh`. Tech-helper job. |
+| Signal stops auto-replying after a while | Signal sometimes drops linked devices for security reasons. Re-link by deleting `environment/signal-data/` and re-running `./install.sh`. |
 
 ### What you can't fix yourself
 
@@ -254,7 +230,7 @@ For all of these: the fix is a 5–15 minute remote-support session with your te
 
 ## For developers / your tech helper
 
-The end-user docs above cover the "happy path" install + daily use. The rest of this section is the maintainer's quick-start: getting it running on a Linux laptop, smoke-testing it, and iterating before the NAS deploy.
+The end-user docs above cover the "happy path". The rest of this section is the maintainer's quick-start.
 
 ### Tech stack
 
@@ -264,12 +240,10 @@ Python 3.12 (asyncio, Telethon, python-telegram-bot v21, aiohttp), Docker + Comp
 
 - [`SPEC.md`](SPEC.md) — full architecture, component contracts, acceptance criteria.
 - [`TESTING.md`](TESTING.md) — phased test plan (Telegram-only locally, then Signal, then soak, then NAS).
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) — detailed QNAP deployment + handoff checklist for the non-technical user.
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — detailed QNAP deployment notes (older — `./install.sh` is now the recommended path).
 - [`HOW_TO_USE_WITH_CLAUDE_CODE.md`](HOW_TO_USE_WITH_CLAUDE_CODE.md) — original prompt-driven build flow.
 
 ### Local quick-start (Ubuntu laptop, Telegram only)
-
-This is the path that maps to **`TESTING.md` Phase 1** — get the stack running locally before adding Signal or moving to the NAS.
 
 ```bash
 # 1. Prereqs (one-time)
@@ -277,20 +251,23 @@ sudo apt install docker.io docker-compose-plugin make
 sudo usermod -aG docker $USER     # log out/in once after this
 
 # 2. Configure
-cp .env.example .env
-$EDITOR .env       # paste TG_USER_BOT_API_ID/HASH, TG_CONTROL_BOT_TOKEN, TG_OWNER_USER_ID
-                   # leave SIGNAL_PHONE_NUMBER blank for Phase 1
+mkdir -p environment
+cp .env.example environment/.env
+$EDITOR environment/.env   # paste TG_USER_BOT_API_ID/HASH, TG_CONTROL_BOT_TOKEN,
+                           # TG_OWNER_USER_ID. Leave SIGNAL_PHONE_NUMBER blank
+                           # for Phase 1.
 
-# 3. First-run Telegram login (writes data/userbot.session)
-make tg-login
-#   → enter phone in +49… form
-#   → enter the login code that arrives inside the Telegram app
-#   → 2FA password if you have one
+# 3. One-shot install (does build + tg-login [+ signal-link] + up)
+./install.sh
+```
 
-# 4. Build & start
+Or step-by-step for finer-grained iteration:
+
+```bash
 make build
+make tg-login         # writes environment/data/userbot.session
 make up
-make logs        # follow both containers
+make logs             # follow both containers
 ```
 
 Expected log lines:
@@ -309,18 +286,18 @@ Signal disabled (SIGNAL_PHONE_NUMBER unset)
 4. Send 4 more DMs in quick succession → expect zero further replies (cooldown).
 5. Tap **📊 Status** in the control bot → confirm the displayed timezone, current local time, and "active right now" all match reality.
 
-If all five pass, walk through `TESTING.md` Phase 1 (T1–T14). For T3/T4 you'll want to lower `cooldown_hours` temporarily — easiest is to edit `data/state.json` directly while the container is stopped, or add a `/setcooldown` command (out of scope for v1).
+If all five pass, walk through `TESTING.md` Phase 1 (T1–T14). For T3/T4 you'll want to lower `cooldown_hours` temporarily — easiest is to edit `environment/data/state.json` directly while the container is stopped.
 
 ### Add Signal (Phase 2)
 
 ```bash
-$EDITOR .env             # set SIGNAL_PHONE_NUMBER=+49…
-make signal-link         # brings up signal-api alone
-make signal-qr           # prints the QR-link URL
-                         # → open in browser, scan from Signal → Linked Devices → +
-make signal-accounts     # should list your number
-make restart             # bounce the autoresponder so it picks up the new env
-make logs                # expect "Signal listener connected"
+$EDITOR environment/.env     # set SIGNAL_PHONE_NUMBER=+49…
+make signal-link             # brings up signal-api alone
+make signal-qr-tty           # renders the QR directly in your terminal
+                             # → scan from Signal → Linked Devices → +
+make signal-accounts         # should list your number
+make restart                 # bounce the autoresponder so it picks up SIGNAL_PHONE_NUMBER
+make logs                    # expect "Signal listener connected"
 ```
 
 Then repeat the smoke test using a Signal DM instead of a Telegram one, and run TESTING.md Phase 2 (S1–S4).
@@ -339,16 +316,26 @@ Then repeat the smoke test using a Signal DM instead of a Telegram one, and run 
 | `make tg-login` | First-run interactive Telegram login |
 | `make signal-link` | Bring up `signal-api` alone for QR linking |
 | `make signal-qr` | Print the QR-link URL |
+| `make signal-qr-tty` | Render the Signal QR code in the terminal |
 | `make signal-accounts` | Show linked Signal accounts |
 | `make shell` | Open a shell in the autoresponder container |
-| `make clean` | Remove the built image (does not touch `data/`) |
+| `make clean` | Remove the built image (does not touch `environment/`) |
+
+> All `make` targets and `./install.sh` pass `--env-file environment/.env` to `docker compose` automatically. If you invoke `docker compose` by hand, remember to include that flag — otherwise compose won't find your variables.
 
 ### Iteration loop
 
-Code change in `app/` → `make build && make restart && make logs`. The mounted `data/` volume preserves session + `state.json` across rebuilds, so you don't have to re-login each time.
+Code change in `app/` → `make build && make restart && make logs`. The mounted `environment/data/` volume preserves the session + `state.json` across rebuilds, so you don't have to re-login each time.
 
 ### Security notes
 
-- `data/userbot.session` and everything in `signal-data/` are **credentials** — they grant full access to the linked accounts. Never commit them, never email them, restrict file permissions to the owner only.
-- `.env` contains the bot token and API hash — also a credential. The included `.gitignore` keeps both out of git.
+- `environment/data/userbot.session` and everything in `environment/signal-data/` are **credentials** — they grant full access to the linked accounts. The included `.gitignore` keeps `environment/` out of git entirely.
+- `environment/.env` contains the bot token, the Telegram API hash, and your Signal phone number. The installer `chmod 600`'s it.
 - Do not lower the cooldown below ~1 hour in production: Telegram's anti-spam systems can flag accounts that auto-reply rapidly to many people.
+- Port 8080 is only published while you're linking Signal. Comment it out in `docker-compose.yml` (and `make restart`) afterwards.
+
+---
+
+## Acknowledgments
+
+The implementation, install scripts, and documentation in this repository were generated by **Claude** (Anthropic) in an interactive session via [Claude Code](https://docs.claude.com/en/docs/claude-code), with all design decisions, testing, debugging, and final review done by [Marcel Reuter](mailto:mr@skynw.com). The intent is to keep this attribution visible so anyone reading or contributing knows the provenance of the code.

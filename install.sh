@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # install.sh — one-shot installer for the Telegram + Signal autoresponder.
 #
-# Run this on the Docker host (typically your QNAP, via SSH) after editing .env.
-# Idempotent: re-running it skips steps that are already done.
+# Run this on the Docker host (typically your QNAP, via SSH) after editing
+# environment/.env. Idempotent: re-running it skips steps that are already done.
+#
+# All credentials and persistent state live under ./environment/ — that
+# directory is gitignored, so a fresh `git clone` starts empty and this
+# installer walks the user through populating it.
 #
 # Usage: ./install.sh
 
@@ -21,6 +25,10 @@ warn()  { printf "%s!%s %s\n" "$YEL" "$NC" "$*"; }
 fail()  { printf "%s✗%s %s\n" "$RED" "$NC" "$*" >&2; exit 1; }
 step()  { printf "\n%s%s── %s ──%s\n" "$BOLD" "$BLU" "$*" "$NC"; }
 
+# All credentials live under environment/. docker compose needs --env-file
+# pointed there so ${VAR} substitutions in docker-compose.yml resolve.
+COMPOSE=(docker compose --env-file environment/.env)
+
 # ── 1. Prereqs ──────────────────────────────────────────────────────────────
 step "Checking prerequisites"
 command -v docker >/dev/null 2>&1 || fail "docker not installed (install Container Station on QNAP, or docker.io on Linux)"
@@ -29,15 +37,17 @@ docker info >/dev/null 2>&1 || fail "docker daemon not reachable (is the service
 ok "docker $(docker --version | awk '{print $3}' | tr -d ,)"
 ok "compose $(docker compose version --short)"
 
-# ── 2. .env ─────────────────────────────────────────────────────────────────
-step "Checking .env"
-if [[ ! -f .env ]]; then
+# ── 2. environment/.env ─────────────────────────────────────────────────────
+step "Checking environment/.env"
+mkdir -p environment
+if [[ ! -f environment/.env ]]; then
   if [[ -f .env.example ]]; then
-    cp .env.example .env
-    warn ".env created from .env.example"
-    fail "Edit .env with your credentials (see README Part 1), then re-run ./install.sh"
+    cp .env.example environment/.env
+    chmod 600 environment/.env
+    warn "environment/.env created from .env.example"
+    fail "Edit environment/.env with your credentials (see README Part 1), then re-run ./install.sh"
   else
-    fail ".env not found and no .env.example to start from — are you in the project root?"
+    fail ".env.example not found at project root — are you in the project root?"
   fi
 fi
 
@@ -45,18 +55,21 @@ fi
 required=(TG_USER_BOT_API_ID TG_USER_BOT_API_HASH TG_CONTROL_BOT_TOKEN TG_OWNER_USER_ID)
 missing=()
 # shellcheck disable=SC1091
-set -a; . ./.env; set +a
+set -a; . ./environment/.env; set +a
 for v in "${required[@]}"; do
   if [[ -z "${!v:-}" ]]; then missing+=("$v"); fi
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
-  fail "Missing required vars in .env: ${missing[*]}"
+  fail "Missing required vars in environment/.env: ${missing[*]}"
 fi
 
 # Sanity-check numeric fields
 [[ "${TG_USER_BOT_API_ID}" =~ ^[0-9]+$ ]] || fail "TG_USER_BOT_API_ID must be plain digits (no quotes, no spaces)"
 [[ "${TG_OWNER_USER_ID}" =~ ^[0-9]+$ ]] || fail "TG_OWNER_USER_ID must be plain digits (no quotes, no 'Id:' prefix)"
-ok ".env looks complete"
+ok "environment/.env looks complete"
+
+# Protect the file from accidental world-readability
+chmod 600 environment/.env 2>/dev/null || true
 
 SIGNAL_ENABLED=0
 if [[ -n "${SIGNAL_PHONE_NUMBER:-}" ]]; then
@@ -69,20 +82,20 @@ fi
 
 # ── 3. Build ────────────────────────────────────────────────────────────────
 step "Building autoresponder image"
-docker compose build
+"${COMPOSE[@]}" build
 ok "image built"
 
 # ── 4. Telegram login (interactive) ─────────────────────────────────────────
 step "Telegram userbot login"
-if [[ -f data/userbot.session ]]; then
-  warn "data/userbot.session already exists — skipping login"
+if [[ -f environment/data/userbot.session ]]; then
+  warn "environment/data/userbot.session already exists — skipping login"
   warn "  (delete it and re-run if you want to log in as a different account)"
 else
   info "You'll be prompted for your phone (in +49... format) then a login code"
   info "Telegram will send the code as a message inside your Telegram app (chat: \"Telegram\")"
   echo
-  docker compose run --rm autoresponder python -m app.tg_login
-  [[ -f data/userbot.session ]] || fail "Telegram login did not produce data/userbot.session"
+  "${COMPOSE[@]}" run --rm autoresponder python -m app.tg_login
+  [[ -f environment/data/userbot.session ]] || fail "Telegram login did not produce environment/data/userbot.session"
   ok "Telegram userbot logged in"
 fi
 
@@ -90,18 +103,18 @@ fi
 if [[ $SIGNAL_ENABLED -eq 1 ]]; then
   step "Signal link"
   info "Starting signal-api container..."
-  docker compose up -d signal-api
+  "${COMPOSE[@]}" up -d signal-api
 
   info "Waiting for signal-api to be ready..."
   for _ in $(seq 1 30); do
-    if docker compose exec -T signal-api wget -q -O- http://localhost:8080/v1/about >/dev/null 2>&1; then
+    if "${COMPOSE[@]}" exec -T signal-api wget -q -O- http://localhost:8080/v1/about >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
 
   # Check whether already linked
-  accounts="$(docker compose exec -T signal-api wget -q -O- http://localhost:8080/v1/accounts 2>/dev/null || echo '[]')"
+  accounts="$("${COMPOSE[@]}" exec -T signal-api wget -q -O- http://localhost:8080/v1/accounts 2>/dev/null || echo '[]')"
   if echo "$accounts" | grep -q "\"${SIGNAL_PHONE_NUMBER}\""; then
     ok "Signal already linked for ${SIGNAL_PHONE_NUMBER}"
   else
@@ -118,21 +131,21 @@ if [[ $SIGNAL_ENABLED -eq 1 ]]; then
     read -r -p "Press Enter after you have scanned the QR and Signal shows the linked device... " _
     sleep 2
 
-    accounts="$(docker compose exec -T signal-api wget -q -O- http://localhost:8080/v1/accounts 2>/dev/null || echo '[]')"
+    accounts="$("${COMPOSE[@]}" exec -T signal-api wget -q -O- http://localhost:8080/v1/accounts 2>/dev/null || echo '[]')"
     if echo "$accounts" | grep -q "\"${SIGNAL_PHONE_NUMBER}\""; then
       ok "Signal linked for ${SIGNAL_PHONE_NUMBER}"
     else
       warn "Could not confirm Signal link. Continuing anyway — verify later with:"
-      warn "  docker compose exec signal-api wget -q -O- http://localhost:8080/v1/accounts"
+      warn "  ${COMPOSE[*]} exec signal-api wget -q -O- http://localhost:8080/v1/accounts"
     fi
   fi
 fi
 
 # ── 6. Start everything ─────────────────────────────────────────────────────
 step "Starting all containers"
-docker compose up -d
+"${COMPOSE[@]}" up -d
 sleep 2
-docker compose ps
+"${COMPOSE[@]}" ps
 
 # ── 7. Done ─────────────────────────────────────────────────────────────────
 echo
@@ -147,10 +160,10 @@ ${BOLD}Next steps:${NC}
   4. Toggle on via the 🟢 On button (or /on)
 
 ${BOLD}Useful commands:${NC}
-  Watch logs:           docker compose logs -f
-  Stop:                 docker compose down
-  Restart:              docker compose restart
-  Status:               docker compose ps
-  Recreate after .env:  docker compose up -d --force-recreate
+  Watch logs:           make logs
+  Stop:                 make down
+  Restart:              make restart
+  Status:               make ps
+  Recreate after edit:  ${COMPOSE[*]} up -d --force-recreate
 
 EOF
