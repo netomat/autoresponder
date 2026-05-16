@@ -430,21 +430,21 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Telegram Business / Chat Automation (Path A: declare support, log only)
+# Telegram Business / Chat Automation — the auto-reply path
 # ---------------------------------------------------------------------------
-# To attach this bot to a user account via Settings → Chat Automation, two
-# things must be true:
-#   1. The bot has "Business Mode" enabled in @BotFather
+# To attach this bot to a user account via Settings → Chat Automation:
+#   1. Enable Business Mode in @BotFather
 #      (/mybots → bot → Bot Settings → Business Mode → Enable).
-#   2. The bot's allowed_updates list (set in start_polling below) declares
-#      business_connection and business_message — Telegram checks this and
-#      otherwise rejects attachment with "this bot doesn't support Telegram
-#      business yet".
+#   2. The bot's allowed_updates list (set in start_polling below) must
+#      declare business_connection and business_message — Telegram otherwise
+#      rejects attachment with "this bot doesn't support Telegram business
+#      yet".
 #
-# These handlers currently just LOG, they don't auto-reply. Once attachment
-# is confirmed, on_business_message is where the schedule/state.json/cooldown
-# logic from app/userbot.py would be ported so the bot replies via
-# sendMessage(business_connection_id=...).
+# Note: the per-permission UI checkboxes ("Reply to Messages", "Mark as
+# Read"…) may visually bounce back unchecked. That's a Telegram client-side
+# display issue; the underlying can_reply=True flag in the business_connection
+# update is the actual API gate, and sendMessage(business_connection_id=...)
+# is accepted regardless of the UI state.
 
 
 async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -464,33 +464,55 @@ async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
 
 async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Auto-reply to incoming DMs delivered via Chat Automation.
+
+    Filter pipeline mirrors the legacy userbot.py exactly:
+      1. skip if sender info is missing (Telegram quirk)
+      2. skip bots and the owner's own outgoing messages
+      3. master switch + per-platform switch must be on
+      4. schedule must say we're active right now
+      5. cooldown must have elapsed for this sender
+    """
     msg = update.business_message
-    if msg is None:
+    if msg is None or msg.from_user is None:
         return
+    cfg: Config = ctx.application.bot_data["cfg"]
+
     text = msg.text or msg.caption or ""
     log.info(
         "business_message: connection_id=%s from_user_id=%s chat_id=%s text=%r",
         msg.business_connection_id,
-        msg.from_user.id if msg.from_user else None,
+        msg.from_user.id,
         msg.chat.id if msg.chat else None,
         text[:200],
     )
-    # Diagnostic: a trigger word lets us probe whether sending via the
-    # business connection actually works, despite the "Reply to Messages"
-    # UI checkbox bouncing back unchecked. Send "/testreply" from any chat
-    # to your business-connected account; the bot will try to reply on
-    # your behalf and log success or the API error. No effect on normal
-    # messages — Path B will replace this with the real auto-reply logic.
-    if "/testreply" in text.lower() and msg.business_connection_id and msg.chat:
-        try:
-            await ctx.bot.send_message(
-                business_connection_id=msg.business_connection_id,
-                chat_id=msg.chat.id,
-                text="(test reply from autoresponder — business send works ✓)",
-            )
-            log.info("business test reply sent OK")
-        except Exception as e:
-            log.exception("business test reply FAILED: %s", e)
+
+    # Bot-to-bot loops are bad; the owner's own outgoing messages would
+    # otherwise trigger replies to whoever they were writing to.
+    if msg.from_user.is_bot or msg.from_user.id == cfg.owner_user_id:
+        return
+
+    state = await st.load()
+    if not state["platforms"]["telegram"]:
+        return
+    if not st.should_reply_now(state):
+        return
+    if not st.should_reply_to_user(state, "telegram", msg.from_user.id):
+        return
+
+    try:
+        await ctx.bot.send_message(
+            business_connection_id=msg.business_connection_id,
+            chat_id=msg.chat.id,
+            text=state["message"],
+        )
+    except Exception:
+        log.exception("failed to send business auto-reply to user %s", msg.from_user.id)
+        return
+
+    st.record_reply(state, "telegram", msg.from_user.id)
+    await st.save(state)
+    log.info("auto-replied to telegram user %s via business connection", msg.from_user.id)
 
 
 # ---------------------------------------------------------------------------
