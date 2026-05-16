@@ -24,3 +24,7 @@ Thumbs.db
 
 # Local Claude Code permissions (machine-specific)
 .claude/settings.local.json
+
+# Per-project instructions for Claude Code — kept out of git by request.
+# DO NOT remove this line unless the owner explicitly authorizes committing CLAUDE.md.
+CLAUDE.md

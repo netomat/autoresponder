@@ -4,7 +4,7 @@ A self-hosted "I'm away" auto-replier for your **personal** Telegram and Signal 
 
 > **You are not a developer? That's fine.** This guide walks you through it step by step. You will need ~45 minutes the first time, and a friend with some technical skill if you get stuck. After that you only ever use a Telegram bot — no terminal, no SSH, nothing scary.
 
-> 🤖 **Built with [Claude](https://www.anthropic.com/claude)** (Anthropic's AI assistant), guided end-to-end by [Marcel Reuter](https://github.com/) via [Claude Code](https://docs.claude.com/en/docs/claude-code). The conversation logs that produced this codebase are part of the history of the project.
+> 🤖 **Built with [Claude](https://www.anthropic.com/claude)** (Anthropic's AI assistant) via [Claude Code](https://docs.claude.com/en/docs/claude-code), guided end-to-end by Marcel Reuter (review, testing, deployment, security decisions).
 
 ---
 
