@@ -467,13 +467,30 @@ async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
     msg = update.business_message
     if msg is None:
         return
+    text = msg.text or msg.caption or ""
     log.info(
         "business_message: connection_id=%s from_user_id=%s chat_id=%s text=%r",
         msg.business_connection_id,
         msg.from_user.id if msg.from_user else None,
         msg.chat.id if msg.chat else None,
-        (msg.text or msg.caption or "")[:200],
+        text[:200],
     )
+    # Diagnostic: a trigger word lets us probe whether sending via the
+    # business connection actually works, despite the "Reply to Messages"
+    # UI checkbox bouncing back unchecked. Send "/testreply" from any chat
+    # to your business-connected account; the bot will try to reply on
+    # your behalf and log success or the API error. No effect on normal
+    # messages — Path B will replace this with the real auto-reply logic.
+    if "/testreply" in text.lower() and msg.business_connection_id and msg.chat:
+        try:
+            await ctx.bot.send_message(
+                business_connection_id=msg.business_connection_id,
+                chat_id=msg.chat.id,
+                text="(test reply from autoresponder — business send works ✓)",
+            )
+            log.info("business test reply sent OK")
+        except Exception as e:
+            log.exception("business test reply FAILED: %s", e)
 
 
 # ---------------------------------------------------------------------------
