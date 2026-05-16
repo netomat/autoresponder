@@ -516,9 +516,13 @@ async def _restrict_bot_access(token: str, bot_user_id: int) -> None:
         # Empty added_user_ids — only the bot's owner (the user who created
         # it in @BotFather) can access. That's you.
     }
+    # aiohttp.ClientTimeout is the correct type; passing a bare int to
+    # session.post(timeout=...) was hanging instead of timing out.
+    timeout = aiohttp.ClientTimeout(total=10)
+    log.info("calling setManagedBotAccessSettings to restrict bot to owner")
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=10) as resp:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as resp:
                 data = await resp.json()
         if data.get("ok"):
             log.info("platform-level access restriction enabled — only owner can use the bot")
@@ -527,6 +531,11 @@ async def _restrict_bot_access(token: str, bot_user_id: int) -> None:
                 "setManagedBotAccessSettings refused: %s — handler-level _owner_only still active",
                 data.get("description", data),
             )
+    except asyncio.TimeoutError:
+        log.warning(
+            "setManagedBotAccessSettings timed out after 10s — "
+            "handler-level _owner_only still active",
+        )
     except Exception:
         log.warning(
             "setManagedBotAccessSettings call errored — handler-level _owner_only still active",

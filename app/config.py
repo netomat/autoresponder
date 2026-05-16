@@ -55,7 +55,17 @@ def _fatal(msg: str) -> "None":
 
 def load() -> Config:
     """Read env vars, validate, return a frozen Config. Exits on error."""
-    userbot_enabled = _parse_bool(os.environ.get("TG_USERBOT_ENABLED"), default=True)
+    # Smart default for userbot mode: if both API_ID and API_HASH are present
+    # we assume userbot is wanted; if either is missing we assume Chat
+    # Automation only. Explicit TG_USERBOT_ENABLED still wins. This prevents
+    # the 'FATAL: missing required env vars' crash when someone removes the
+    # userbot credentials without also setting the flag.
+    creds_present = bool(
+        os.environ.get("TG_USER_BOT_API_ID") and os.environ.get("TG_USER_BOT_API_HASH")
+    )
+    userbot_enabled = _parse_bool(
+        os.environ.get("TG_USERBOT_ENABLED"), default=creds_present
+    )
 
     required = list(_REQUIRED_ALWAYS)
     if userbot_enabled:

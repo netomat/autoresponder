@@ -101,8 +101,9 @@ def main() -> None:
     cfg = cfgmod.load()
     cfgmod.setup_logging(cfg.log_level)
     log.info(
-        "starting autoresponder — timezone=%s, signal=%s, current local time=%s",
+        "starting autoresponder — timezone=%s, userbot=%s, signal=%s, current local time=%s",
         cfg.timezone,
+        "enabled" if cfg.userbot_enabled else "disabled (Chat Automation only)",
         "enabled" if cfg.signal_enabled else "disabled",
         datetime.now(ZoneInfo(cfg.timezone)).isoformat(timespec="seconds"),
     )
