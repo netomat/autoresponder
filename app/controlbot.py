@@ -21,6 +21,7 @@ from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    BusinessConnectionHandler,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -429,6 +430,53 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Telegram Business / Chat Automation (Path A: declare support, log only)
+# ---------------------------------------------------------------------------
+# To attach this bot to a user account via Settings → Chat Automation, two
+# things must be true:
+#   1. The bot has "Business Mode" enabled in @BotFather
+#      (/mybots → bot → Bot Settings → Business Mode → Enable).
+#   2. The bot's allowed_updates list (set in start_polling below) declares
+#      business_connection and business_message — Telegram checks this and
+#      otherwise rejects attachment with "this bot doesn't support Telegram
+#      business yet".
+#
+# These handlers currently just LOG, they don't auto-reply. Once attachment
+# is confirmed, on_business_message is where the schedule/state.json/cooldown
+# logic from app/userbot.py would be ported so the bot replies via
+# sendMessage(business_connection_id=...).
+
+
+async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    bc = update.business_connection
+    if bc is None:
+        return
+    cfg: Config = ctx.application.bot_data["cfg"]
+    if bc.user.id != cfg.owner_user_id:
+        log.warning(
+            "business_connection from non-owner user_id=%s ignored", bc.user.id
+        )
+        return
+    log.info(
+        "business_connection: id=%s is_enabled=%s can_reply=%s user_chat_id=%s",
+        bc.id, bc.is_enabled, bc.can_reply, bc.user_chat_id,
+    )
+
+
+async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.business_message
+    if msg is None:
+        return
+    log.info(
+        "business_message: connection_id=%s from_user_id=%s chat_id=%s text=%r",
+        msg.business_connection_id,
+        msg.from_user.id if msg.from_user else None,
+        msg.chat.id if msg.chat else None,
+        (msg.text or msg.caption or "")[:200],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Heartbeat
 # ---------------------------------------------------------------------------
 
@@ -483,6 +531,11 @@ async def run(cfg: Config) -> None:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    # Chat Automation (Telegram Business) — see handlers above for the why.
+    app.add_handler(BusinessConnectionHandler(on_business_connection))
+    app.add_handler(
+        MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, on_business_message)
+    )
 
     async def _on_error(_update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         exc = ctx.error
@@ -501,7 +554,17 @@ async def run(cfg: Config) -> None:
     try:
         await app.initialize()
         await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
+        await app.updater.start_polling(
+            drop_pending_updates=True,
+            allowed_updates=[
+                Update.MESSAGE,
+                Update.CALLBACK_QUERY,
+                Update.BUSINESS_CONNECTION,
+                Update.BUSINESS_MESSAGE,
+                Update.EDITED_BUSINESS_MESSAGE,
+                Update.DELETED_BUSINESS_MESSAGES,
+            ],
+        )
         log.info("control bot started")
         heartbeat_task = asyncio.create_task(_heartbeat_loop(cfg, app))
         # Block until cancelled by main()'s shutdown handler.
