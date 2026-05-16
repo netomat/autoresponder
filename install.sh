@@ -8,9 +8,18 @@
 # directory is gitignored, so a fresh `git clone` starts empty and this
 # installer walks the user through populating it.
 #
-# Usage: ./install.sh
+# Usage:
+#   ./install.sh            # skip build if the image is already present
+#   ./install.sh --rebuild  # force a rebuild (use after pulling code changes)
 
 set -euo pipefail
+
+FORCE_REBUILD=0
+case "${1:-}" in
+  --rebuild|-r) FORCE_REBUILD=1 ;;
+  "") ;;
+  *) echo "Usage: $0 [--rebuild]" >&2; exit 2 ;;
+esac
 
 # ── output helpers ───────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -130,9 +139,22 @@ else
 fi
 
 # ── 3. Build ────────────────────────────────────────────────────────────────
+# Compose builds are incremental but the context-transfer step is slow on
+# NAS Docker. Skip the build if the image already exists; pass --rebuild
+# after pulling code changes (Dockerfile, requirements.txt, app/...).
 step "Building autoresponder image"
-"${COMPOSE[@]}" build
-ok "image built"
+auto_img="$("${COMPOSE[@]}" config --images 2>/dev/null | grep -E 'autoresponder' | head -1 || true)"
+if [[ $FORCE_REBUILD -eq 1 ]]; then
+  info "rebuilding (--rebuild)"
+  "${COMPOSE[@]}" build
+  ok "image rebuilt"
+elif [[ -n "$auto_img" ]] && docker image inspect "$auto_img" >/dev/null 2>&1; then
+  ok "$auto_img already built — skipping (use ./install.sh --rebuild to force)"
+else
+  info "image missing — building"
+  "${COMPOSE[@]}" build
+  ok "image built"
+fi
 
 # ── 4. Telegram login (interactive) ─────────────────────────────────────────
 step "Telegram userbot login"
