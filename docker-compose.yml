@@ -5,6 +5,13 @@ services:
     restart: unless-stopped
     environment:
       MODE: json-rpc
+      # signal-cli-rest-api drops privileges to this UID/GID inside the
+      # container and writes to the bind-mounted volume. Must match the
+      # host owner of ./environment/signal-data or the container can't
+      # write its config files. install.sh auto-fills these from `id -u`
+      # / `id -g`; the :-1000 default keeps native-Linux installs working.
+      SIGNAL_CLI_UID: "${SIGNAL_CLI_UID:-1000}"
+      SIGNAL_CLI_GID: "${SIGNAL_CLI_GID:-1000}"
     volumes:
       - ./environment/signal-data:/home/.local/share/signal-cli
     ports:

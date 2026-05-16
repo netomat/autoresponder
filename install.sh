@@ -71,6 +71,55 @@ ok "environment/.env looks complete"
 # Protect the file from accidental world-readability
 chmod 600 environment/.env 2>/dev/null || true
 
+# ── 2b. Host UID/GID for signal-cli-rest-api ────────────────────────────────
+# signal-cli-rest-api inside the container drops privileges to SIGNAL_CLI_UID
+# and writes to /home/.local/share/signal-cli, which is bind-mounted from
+# environment/signal-data. On native Linux Docker where your user is UID 1000
+# the default works. On Synology/QNAP NAS your user is typically UID 1026+,
+# so the in-container UID must match or signal-api can't write its config and
+# fails its healthcheck.
+#
+# Fill blanks in .env from `id -u` / `id -g` so the in-container user matches
+# the host. Pre-existing non-empty values are left alone (user override).
+host_uid="$(id -u)"
+host_gid="$(id -g)"
+for kv in "SIGNAL_CLI_UID=${host_uid}" "SIGNAL_CLI_GID=${host_gid}"; do
+  key="${kv%%=*}"
+  if grep -qE "^${key}=.+$" environment/.env; then
+    :  # already set to non-empty value — respect user override
+  elif grep -q "^${key}=" environment/.env; then
+    sed -i.bak "s|^${key}=.*|${kv}|" environment/.env
+  else
+    echo "${kv}" >> environment/.env
+  fi
+done
+rm -f environment/.env.bak
+# Re-source so the rest of this script sees the updated values
+set -a; . ./environment/.env; set +a
+ok "signal-cli will run as UID:GID ${SIGNAL_CLI_UID}:${SIGNAL_CLI_GID}"
+
+# Make sure the bind-mount dirs are owned by that UID/GID. If a previous
+# (broken) run let the container chown them to 1000, fix that here — or
+# print a sudo command if we can't.
+fix_owner() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  local cur_uid
+  cur_uid="$(stat -c %u "$dir")"
+  if [[ "$cur_uid" != "${SIGNAL_CLI_UID}" ]]; then
+    if chown -R "${SIGNAL_CLI_UID}:${SIGNAL_CLI_GID}" "$dir" 2>/dev/null; then
+      ok "fixed ownership of $dir (was UID $cur_uid)"
+    else
+      warn "$dir is owned by UID $cur_uid, expected ${SIGNAL_CLI_UID}."
+      warn "Run this once, then re-run ./install.sh:"
+      warn "  sudo chown -R ${SIGNAL_CLI_UID}:${SIGNAL_CLI_GID} $dir"
+      exit 1
+    fi
+  fi
+}
+fix_owner environment/data
+fix_owner environment/signal-data
+
 SIGNAL_ENABLED=0
 if [[ -n "${SIGNAL_PHONE_NUMBER:-}" ]]; then
   [[ "${SIGNAL_PHONE_NUMBER}" =~ ^\+[0-9]+$ ]] || fail "SIGNAL_PHONE_NUMBER must be in E.164 format (e.g. +491701234567)"
