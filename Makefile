@@ -60,7 +60,7 @@ signal-qr:
 signal-qr-tty:
 	@docker run --rm --network=container:signal-api alpine:latest sh -c '\
 	  set -e && \
-	  apk add --no-cache --quiet curl libqrencode-tools zbar >/dev/null && \
+	  apk add --no-cache --quiet curl libqrencode-tools zbar imagemagick >/dev/null && \
 	  curl -sf "http://localhost:8080/v1/qrcodelink?device_name=autoresponder" -o /tmp/q.png && \
 	  zbarimg --raw -q /tmp/q.png | tr -d "\n" | qrencode -t UTF8' \
 	  || echo "Failed. Is signal-api running? Try: make up"

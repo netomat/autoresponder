@@ -40,11 +40,26 @@ COMPOSE=(docker compose --env-file environment/.env)
 
 # ── 1. Prereqs ──────────────────────────────────────────────────────────────
 step "Checking prerequisites"
-command -v docker >/dev/null 2>&1 || fail "docker not installed (install Container Station on QNAP, or docker.io on Linux)"
+
+# Required
+command -v docker >/dev/null 2>&1 || fail "docker not installed (install Container Manager on Synology, Container Station on QNAP, or docker.io on Linux)"
 docker compose version >/dev/null 2>&1 || fail "docker compose plugin missing — install docker-compose-plugin or upgrade Docker"
 docker info >/dev/null 2>&1 || fail "docker daemon not reachable (is the service running, and are you in the docker group?)"
 ok "docker $(docker --version | awk '{print $3}' | tr -d ,)"
 ok "compose $(docker compose version --short)"
+
+# Optional — informational only. Tells the user which Makefile / git-pull
+# conveniences will work; install.sh itself doesn't need either.
+if command -v git >/dev/null 2>&1; then
+  ok "git: present (optional, used for 'git pull' updates)"
+else
+  info "git: not installed (optional — to update later, re-download the repo as a ZIP)"
+fi
+if command -v make >/dev/null 2>&1; then
+  ok "make: present (optional, used for Makefile shortcuts like 'make up')"
+else
+  info "make: not installed (optional — install.sh and 'docker compose --env-file environment/.env <cmd>' still work)"
+fi
 
 # ── 2. environment/.env ─────────────────────────────────────────────────────
 step "Checking environment/.env"
@@ -217,8 +232,14 @@ if [[ $SIGNAL_ENABLED -eq 1 ]]; then
     echo
     docker run --rm --network=container:signal-api alpine:latest sh -c '
       set -e
-      apk add --no-cache --quiet curl libqrencode-tools zbar >/dev/null
+      apk add --no-cache --quiet curl libqrencode-tools zbar imagemagick >/dev/null
       curl -sf "http://localhost:8080/v1/qrcodelink?device_name=autoresponder" -o /tmp/q.png
+      bytes=$(wc -c < /tmp/q.png)
+      if [ "$bytes" -lt 200 ]; then
+        echo "signal-api returned only ${bytes} bytes (not a valid PNG)"
+        echo "Try again in ~10s — the signal-cli daemon may still be initializing."
+        exit 1
+      fi
       zbarimg --raw -q /tmp/q.png | tr -d "\n" | qrencode -t UTF8
     '
     echo

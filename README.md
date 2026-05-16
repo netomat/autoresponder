@@ -17,11 +17,64 @@ A self-hosted "I'm away" auto-replier for your **personal** Telegram and Signal 
 
 ## What you need
 
-1. **A QNAP NAS** with the **Container Station** app installed (free in the QNAP App Center) — *or* any Linux box with Docker.
-2. **SSH access** to that machine, and `git` + `docker` + `docker compose` + `make` installed there.
-3. **Your phone** with both Telegram and Signal installed and working.
-4. **About 45 minutes** the first time.
-5. **Optionally a friend who knows Linux** for the parts that touch the NAS terminal — but the steps below are copy-pasteable.
+### On the host (a NAS, or any Linux box)
+
+**Required**
+
+| Package | Why |
+|---|---|
+| **Docker** + **docker compose plugin (v2)** | Runs the autoresponder and the Signal API in containers. |
+| **SSH access** | The installer is interactive — you need a terminal to the host. |
+| **`bash`** | `install.sh` uses bash-only features (arrays, `[[ ]]`). Regular Linux already has it; NAS systems default to BusyBox `ash` and may need bash installed separately. |
+
+**Optional — each has a workaround**
+
+| Package | Workaround if missing |
+|---|---|
+| **`git`** | Download the repo as a ZIP from the repo URL, upload to the host, unzip. You won't get `git pull` for updates — re-download instead. |
+| **`make`** | The `Makefile` is a thin wrapper. `./install.sh` and direct `docker compose --env-file environment/.env <cmd>` calls work without it. |
+| **Text editor on the host (`nano`/`vim`)** | Edit `environment/.env` on your laptop and `scp` it to the host. |
+
+`./install.sh` runs a prerequisite check at the start and tells you what's present and what's missing — you can run it once just to see the report.
+
+### Install hints per platform
+
+**Synology DSM 7.x and newer**
+
+- **Docker**: install **Container Manager** from Package Center (older DSM versions call it "Docker"). Compose v2 is included.
+- **SSH**: Control Panel → Terminal & SNMP → ✅ Enable SSH service.
+- **bash / git / make**: not in DSM by default. Cleanest path is the **SynoCommunity** repo (add `https://packages.synocommunity.com/` in Package Center → Settings → Package Sources) → install **SynoCLI File Tools** + **SynoCLI Devel**, which provide `bash`, `git`, and `make`. Alternative: Entware installed to `/opt`.
+- Your DSM user has UID 1026 or higher — that's why `SIGNAL_CLI_UID` matters; `install.sh` detects it automatically.
+
+**QNAP QTS / QuTS hero**
+
+- **Docker**: install **Container Station** from App Center.
+- **SSH**: Control Panel → Network & File Services → Telnet/SSH → ✅ Allow SSH connection.
+- **bash / git / make**: not in QTS by default. Add the **QnapClub Store** repo to App Center (`https://www.qnapclub.eu/en/repo.xml`), install **Entware-std** from it, then SSH back in (fresh session — Entware adjusts `$PATH` via profile) and run:
+  ```bash
+  opkg update && opkg install bash git make
+  ```
+
+**Plain Linux (Debian / Ubuntu)**
+
+```bash
+sudo apt install docker.io docker-compose-plugin git make
+sudo usermod -aG docker $USER       # log out / in once after
+```
+
+**Plain Linux (Fedora / RHEL)**
+
+```bash
+sudo dnf install docker docker-compose-plugin git make
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+### On your phone
+
+- Telegram and Signal apps installed and signed in.
+- About 45 minutes the first time.
+- Optionally a friend who knows Linux for the parts that touch the host terminal — but the steps below are copy-pasteable.
 
 ---
 
