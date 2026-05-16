@@ -39,7 +39,7 @@ ok "compose $(docker compose version --short)"
 
 # ── 2. environment/.env ─────────────────────────────────────────────────────
 step "Checking environment/.env"
-mkdir -p environment
+mkdir -p environment environment/data environment/signal-data
 if [[ ! -f environment/.env ]]; then
   if [[ -f .env.example ]]; then
     cp .env.example environment/.env
