@@ -42,10 +42,16 @@ async def _prune_loop() -> None:
 
 async def _run_all(cfg: cfgmod.Config) -> None:
     tasks = [
-        asyncio.create_task(userbot.run(cfg), name="userbot"),
         asyncio.create_task(controlbot.run(cfg), name="controlbot"),
         asyncio.create_task(_prune_loop(), name="prune_loop"),
     ]
+    if cfg.userbot_enabled:
+        tasks.append(asyncio.create_task(userbot.run(cfg), name="userbot"))
+    else:
+        log.warning(
+            "Telegram userbot disabled (TG_USERBOT_ENABLED=false) — "
+            "Telegram replies will come from the control bot via Chat Automation"
+        )
     if cfg.signal_enabled:
         tasks.append(asyncio.create_task(signalbot.run(cfg), name="signalbot"))
     else:

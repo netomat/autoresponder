@@ -15,8 +15,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 @dataclass(frozen=True)
 class Config:
-    tg_api_id: int
-    tg_api_hash: str
+    # Telethon userbot is optional — when disabled, the control bot's
+    # Telegram Business handler is the only Telegram reply path.
+    userbot_enabled: bool
+    tg_api_id: int | None
+    tg_api_hash: str | None
     control_bot_token: str
     owner_user_id: int
     signal_api_url: str
@@ -29,12 +32,20 @@ class Config:
         return bool(self.signal_phone_number)
 
 
-_REQUIRED = (
-    "TG_USER_BOT_API_ID",
-    "TG_USER_BOT_API_HASH",
+_REQUIRED_ALWAYS = (
     "TG_CONTROL_BOT_TOKEN",
     "TG_OWNER_USER_ID",
 )
+_REQUIRED_IF_USERBOT = (
+    "TG_USER_BOT_API_ID",
+    "TG_USER_BOT_API_HASH",
+)
+
+
+def _parse_bool(raw: str | None, default: bool) -> bool:
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _fatal(msg: str) -> "None":
@@ -44,14 +55,23 @@ def _fatal(msg: str) -> "None":
 
 def load() -> Config:
     """Read env vars, validate, return a frozen Config. Exits on error."""
-    missing = [k for k in _REQUIRED if not os.environ.get(k)]
+    userbot_enabled = _parse_bool(os.environ.get("TG_USERBOT_ENABLED"), default=True)
+
+    required = list(_REQUIRED_ALWAYS)
+    if userbot_enabled:
+        required.extend(_REQUIRED_IF_USERBOT)
+    missing = [k for k in required if not os.environ.get(k)]
     if missing:
         _fatal(f"missing required env vars: {', '.join(missing)}")
 
-    try:
-        tg_api_id = int(os.environ["TG_USER_BOT_API_ID"])
-    except ValueError:
-        _fatal("TG_USER_BOT_API_ID must be an integer")
+    tg_api_id: int | None = None
+    tg_api_hash: str | None = None
+    if userbot_enabled:
+        try:
+            tg_api_id = int(os.environ["TG_USER_BOT_API_ID"])
+        except ValueError:
+            _fatal("TG_USER_BOT_API_ID must be an integer")
+        tg_api_hash = os.environ["TG_USER_BOT_API_HASH"]
     try:
         owner_user_id = int(os.environ["TG_OWNER_USER_ID"])
     except ValueError:
@@ -72,8 +92,9 @@ def load() -> Config:
         _fatal(f"LOG_LEVEL '{log_level}' is not a valid logging level")
 
     return Config(
+        userbot_enabled=userbot_enabled,
         tg_api_id=tg_api_id,
-        tg_api_hash=os.environ["TG_USER_BOT_API_HASH"],
+        tg_api_hash=tg_api_hash,
         control_bot_token=os.environ["TG_CONTROL_BOT_TOKEN"],
         owner_user_id=owner_user_id,
         signal_api_url=os.environ.get("SIGNAL_API_URL", "http://signal-api:8080"),

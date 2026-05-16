@@ -60,11 +60,24 @@ if [[ ! -f environment/.env ]]; then
   fi
 fi
 
-# Validate required vars without printing values
-required=(TG_USER_BOT_API_ID TG_USER_BOT_API_HASH TG_CONTROL_BOT_TOKEN TG_OWNER_USER_ID)
-missing=()
+# Load .env into shell scope so we can validate per the userbot flag
 # shellcheck disable=SC1091
 set -a; . ./environment/.env; set +a
+
+# Userbot toggle: defaults to enabled for backward compat. Set
+# TG_USERBOT_ENABLED=false in .env to run Telegram replies via Chat
+# Automation only (no Telethon login, no API_ID/HASH needed).
+USERBOT_ENABLED=1
+case "${TG_USERBOT_ENABLED:-true}" in
+  0|false|False|FALSE|no|No|NO|off|Off|OFF) USERBOT_ENABLED=0 ;;
+esac
+
+# Validate required vars without printing values
+required=(TG_CONTROL_BOT_TOKEN TG_OWNER_USER_ID)
+if [[ $USERBOT_ENABLED -eq 1 ]]; then
+  required+=(TG_USER_BOT_API_ID TG_USER_BOT_API_HASH)
+fi
+missing=()
 for v in "${required[@]}"; do
   if [[ -z "${!v:-}" ]]; then missing+=("$v"); fi
 done
@@ -73,9 +86,16 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 # Sanity-check numeric fields
-[[ "${TG_USER_BOT_API_ID}" =~ ^[0-9]+$ ]] || fail "TG_USER_BOT_API_ID must be plain digits (no quotes, no spaces)"
+if [[ $USERBOT_ENABLED -eq 1 ]]; then
+  [[ "${TG_USER_BOT_API_ID}" =~ ^[0-9]+$ ]] || fail "TG_USER_BOT_API_ID must be plain digits (no quotes, no spaces)"
+fi
 [[ "${TG_OWNER_USER_ID}" =~ ^[0-9]+$ ]] || fail "TG_OWNER_USER_ID must be plain digits (no quotes, no 'Id:' prefix)"
 ok "environment/.env looks complete"
+if [[ $USERBOT_ENABLED -eq 0 ]]; then
+  info "Telegram userbot: disabled (Chat Automation only)"
+else
+  info "Telegram userbot: enabled"
+fi
 
 # Protect the file from accidental world-readability
 chmod 600 environment/.env 2>/dev/null || true
@@ -158,7 +178,9 @@ fi
 
 # ── 4. Telegram login (interactive) ─────────────────────────────────────────
 step "Telegram userbot login"
-if [[ -f environment/data/userbot.session ]]; then
+if [[ $USERBOT_ENABLED -eq 0 ]]; then
+  info "TG_USERBOT_ENABLED=false — skipping userbot login (Chat Automation only)"
+elif [[ -f environment/data/userbot.session ]]; then
   warn "environment/data/userbot.session already exists — skipping login"
   warn "  (delete it and re-run if you want to log in as a different account)"
 else
