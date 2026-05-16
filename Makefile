@@ -54,12 +54,13 @@ signal-qr:
 # Renders the Signal-link QR directly in the terminal — no host tools required.
 # Uses a throwaway Alpine container that shares signal-api's network namespace,
 # so curl can reach the API at localhost:8080 regardless of compose network naming.
-# Pipeline: fetch PNG → decode with zbarimg (needs imagemagick + png delegate) →
-# re-encode as block-character QR with qrencode (cleaner than rendering the PNG).
-# Scan with Signal app → Settings → Linked Devices → +
+# Pipeline: fetch PNG → decode with zbarimg (PNG support is built into the
+# zbar package) → re-encode as block-character QR with qrencode (cleaner than
+# rendering the PNG). Scan with Signal app → Settings → Linked Devices → +
 signal-qr-tty:
 	@docker run --rm --network=container:signal-api alpine:latest sh -c '\
-	  apk add --no-cache --quiet curl libqrencode-tools zbar imagemagick imagemagick-libpng >/dev/null && \
+	  set -e && \
+	  apk add --no-cache --quiet curl libqrencode-tools zbar >/dev/null && \
 	  curl -sf "http://localhost:8080/v1/qrcodelink?device_name=autoresponder" -o /tmp/q.png && \
 	  zbarimg --raw -q /tmp/q.png | tr -d "\n" | qrencode -t UTF8' \
 	  || echo "Failed. Is signal-api running? Try: make up"

@@ -216,7 +216,8 @@ if [[ $SIGNAL_ENABLED -eq 1 ]]; then
     info "  Phone → Signal → Settings → Linked Devices → + → scan"
     echo
     docker run --rm --network=container:signal-api alpine:latest sh -c '
-      apk add --no-cache --quiet curl libqrencode-tools zbar imagemagick imagemagick-libpng >/dev/null
+      set -e
+      apk add --no-cache --quiet curl libqrencode-tools zbar >/dev/null
       curl -sf "http://localhost:8080/v1/qrcodelink?device_name=autoresponder" -o /tmp/q.png
       zbarimg --raw -q /tmp/q.png | tr -d "\n" | qrencode -t UTF8
     '
