@@ -15,6 +15,8 @@ from functools import wraps
 from typing import Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+import aiohttp
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
@@ -494,6 +496,45 @@ async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ---------------------------------------------------------------------------
+# Platform-level access restriction (Bot API 10.0, May 2026)
+# ---------------------------------------------------------------------------
+# The _owner_only decorator drops messages from non-owners at the handler
+# level, but Telegram still lets anyone who knows @yourbot's @handle start a
+# chat — the messages just sit in the bot's update feed unanswered, and the
+# bot's username + name + avatar are visible in search.
+#
+# setManagedBotAccessSettings (Bot API 10.0) flips a flag at Telegram's side
+# so only the bot's owner can interact with it. Non-owners trying to start a
+# chat get an error before the message ever reaches us. PTB 21.6 predates
+# this method, so we call it via raw HTTP.
+
+async def _restrict_bot_access(token: str, bot_user_id: int) -> None:
+    url = f"https://api.telegram.org/bot{token}/setManagedBotAccessSettings"
+    payload = {
+        "user_id": bot_user_id,
+        "is_access_restricted": True,
+        # Empty added_user_ids — only the bot's owner (the user who created
+        # it in @BotFather) can access. That's you.
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as resp:
+                data = await resp.json()
+        if data.get("ok"):
+            log.info("platform-level access restriction enabled — only owner can use the bot")
+        else:
+            log.warning(
+                "setManagedBotAccessSettings refused: %s — handler-level _owner_only still active",
+                data.get("description", data),
+            )
+    except Exception:
+        log.warning(
+            "setManagedBotAccessSettings call errored — handler-level _owner_only still active",
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Heartbeat
 # ---------------------------------------------------------------------------
 
@@ -570,6 +611,12 @@ async def run(cfg: Config) -> None:
     heartbeat_task: asyncio.Task[None] | None = None
     try:
         await app.initialize()
+        # Lock the bot at the Telegram platform level so only the owner can
+        # interact with it — see _restrict_bot_access for details. Best-effort:
+        # if Telegram or the API version refuses, the in-handler _owner_only
+        # decorator still drops non-owner messages.
+        me = await app.bot.get_me()
+        await _restrict_bot_access(cfg.control_bot_token, me.id)
         await app.start()
         await app.updater.start_polling(
             drop_pending_updates=True,
