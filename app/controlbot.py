@@ -553,19 +553,30 @@ async def run(cfg: Config) -> None:
     app: Application = ApplicationBuilder().token(cfg.control_bot_token).build()
     app.bot_data["cfg"] = cfg
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("menu", cmd_menu))
-    app.add_handler(CommandHandler("on", cmd_on))
-    app.add_handler(CommandHandler("off", cmd_off))
-    app.add_handler(CommandHandler("schedule", cmd_schedule))
-    app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(CommandHandler("message", cmd_message))
-    app.add_handler(CommandHandler("platforms", cmd_platforms))
-    app.add_handler(CommandHandler("setschedule", cmd_setschedule))
-    app.add_handler(CommandHandler("help", cmd_help))
+    # All owner-facing handlers must be restricted to UpdateType.MESSAGE,
+    # otherwise PTB's MessageHandler/CommandHandler also matches
+    # update.business_message (via update.effective_message). Without this
+    # filter, a stranger DMing your business-connected account would route
+    # to on_text/cmd_*, hit _owner_only, and get logged as a rejected access
+    # — while on_business_message (registered later in the same group) would
+    # never run. That's exactly the symptom we saw in the logs.
+    msg_only = filters.UpdateType.MESSAGE
+    app.add_handler(CommandHandler("start", cmd_start, filters=msg_only))
+    app.add_handler(CommandHandler("menu", cmd_menu, filters=msg_only))
+    app.add_handler(CommandHandler("on", cmd_on, filters=msg_only))
+    app.add_handler(CommandHandler("off", cmd_off, filters=msg_only))
+    app.add_handler(CommandHandler("schedule", cmd_schedule, filters=msg_only))
+    app.add_handler(CommandHandler("status", cmd_status, filters=msg_only))
+    app.add_handler(CommandHandler("message", cmd_message, filters=msg_only))
+    app.add_handler(CommandHandler("platforms", cmd_platforms, filters=msg_only))
+    app.add_handler(CommandHandler("setschedule", cmd_setschedule, filters=msg_only))
+    app.add_handler(CommandHandler("help", cmd_help, filters=msg_only))
     app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    # Chat Automation (Telegram Business) — see handlers above for the why.
+    app.add_handler(
+        MessageHandler(msg_only & filters.TEXT & ~filters.COMMAND, on_text)
+    )
+    # Chat Automation (Telegram Business) — separate update types, routed
+    # exclusively to the business handlers thanks to the msg_only filter above.
     app.add_handler(BusinessConnectionHandler(on_business_connection))
     app.add_handler(
         MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, on_business_message)
